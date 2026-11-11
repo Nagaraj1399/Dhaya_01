@@ -1,0 +1,6 @@
+{
+  "name": "Sakshi — Bengaluru Road Hazard Evidence Chain",
+  "description": "Civic evidence-chain agent for Bengaluru road hazards under the 2019 Karnataka High Court BBMP statutory maintenance ruling.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,122 @@
+name: Sakshi CI — Unit, Integration, E2E & Coverage Gate
+
+on:
+  push:
+    branches: [main, '**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit-and-integration:
+    name: Layer 1 & 2 — Unit + Integration + Coverage (>=85%)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: sakshi_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      SQL_HOST: 127.0.0.1
+      SQL_PORT: '5432'
+      SQL_USER: postgres
+      SQL_PASSWORD: postgrespassword
+      SQL_DATABASE_NAME: sakshi_test
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript typecheck
+        run: npm run lint
+
+      - name: Push Drizzle schema to PostgreSQL
+        run: npx drizzle-kit push --config=src/db/drizzle.config.ts
+
+      - name: Start Sakshi server in background and run Unit + Integration tests with Coverage
+        run: |
+          nohup npm run dev > server.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000/api/health > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          npm run test:coverage | tee coverage-report.txt
+
+      - name: Upload coverage report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sakshi-coverage-report
+          path: coverage-report.txt
+
+  e2e-and-cross-cutting:
+    name: Layer 3 & 4 — Playwright E2E, Accessibility, Security & Load
+    needs: unit-and-integration
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: sakshi_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      SQL_HOST: 127.0.0.1
+      SQL_PORT: '5432'
+      SQL_USER: postgres
+      SQL_PASSWORD: postgrespassword
+      SQL_DATABASE_NAME: sakshi_test
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies & Chromium
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Push Drizzle schema to PostgreSQL
+        run: npx drizzle-kit push --config=src/db/drizzle.config.ts
+
+      - name: Run Layer 3 E2E & Layer 4 Cross-Cutting Suites
+        run: |
+          nohup npm run dev > server.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000/api/health > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          npm run test:e2e
+          npm run test:cross-cutting
